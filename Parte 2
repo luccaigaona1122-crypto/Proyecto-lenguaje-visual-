@@ -1,0 +1,89 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import os
+from datetime import datetime
+
+# Crear carpeta para facturas
+if not os.path.exists("mini_store_invoices"):
+    os.makedirs("mini_store_invoices")
+
+# Lista de productos (código: [nombre, precio])
+productos = {
+    "001": ["Pan", 2500],
+    "002": ["Leche", 5000],
+    "003": ["Queso", 12000],
+    "004": ["Gaseosa", 7000],
+    "005": ["Yerba", 10000],
+}
+
+# Carrito de compras
+carrito = []
+
+# Función para agregar productos
+def agregar_producto():
+    codigo = codigo_entry.get().strip()
+    if codigo in productos:
+        carrito.append(productos[codigo])
+        actualizar_lista()
+        codigo_entry.delete(0, tk.END)
+    else:
+        messagebox.showerror("Error", "Código no válido.")
+
+# Actualizar lista visual
+def actualizar_lista():
+    lista.delete(*lista.get_children())
+    total = 0
+    for i, (nombre, precio) in enumerate(carrito, 1):
+        lista.insert("", "end", values=(i, nombre, f"{precio:,} Gs"))
+        total += precio
+    total_label.config(text=f"Total: {total:,} Gs")
+
+# Generar factura
+def generar_factura():
+    if not carrito:
+        messagebox.showwarning("Atención", "No hay productos en el carrito.")
+        return
+
+    total = sum(precio for _, precio in carrito)
+    fecha = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    archivo = f"mini_store_invoices/factura_{fecha}.txt"
+
+    with open(archivo, "w", encoding="utf-8") as f:
+        f.write("==== MINI TIENDA PYTHON ====\n")
+        f.write(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n")
+        f.write("Producto\t\tPrecio\n")
+        f.write("------------------------------\n")
+        for nombre, precio in carrito:
+            f.write(f"{nombre}\t\t{precio:,} Gs\n")
+        f.write("------------------------------\n")
+        f.write(f"TOTAL: {total:,} Gs\n")
+        f.write("==============================\n")
+
+    messagebox.showinfo("Factura generada", f"Factura guardada en:\n{archivo}")
+    carrito.clear()
+    actualizar_lista()
+
+# Ventana principal
+root = tk.Tk()
+root.title("Mini Tienda - Python")
+root.geometry("480x400")
+
+tk.Label(root, text="Código del producto:").pack(pady=5)
+codigo_entry = tk.Entry(root)
+codigo_entry.pack()
+
+tk.Button(root, text="Agregar", command=agregar_producto, bg="#4CAF50", fg="white").pack(pady=5)
+
+# Tabla de productos
+cols = ("#", "Producto", "Precio")
+lista = ttk.Treeview(root, columns=cols, show="headings", height=8)
+for c in cols:
+    lista.heading(c, text=c)
+lista.pack(pady=10)
+
+total_label = tk.Label(root, text="Total: 0 Gs", font=("Arial", 12, "bold"))
+total_label.pack()
+
+tk.Button(root, text="Generar Factura", command=generar_factura, bg="#2196F3", fg="white").pack(pady=10)
+
+root.mainloop()
