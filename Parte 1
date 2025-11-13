@@ -1,0 +1,54 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import os
+from datetime import datetime
+
+# Crear carpeta para facturas
+if not os.path.exists("mini_store_invoices"):
+    os.makedirs("mini_store_invoices")
+
+# Lista de productos (código: [nombre, precio])
+productos = {
+    "001": ["Pan", 2500],
+    "002": ["Leche", 5000],
+    "003": ["Queso", 12000],
+    "004": ["Gaseosa", 7000],
+    "005": ["Yerba", 10000],
+}
+
+# Carrito de compras
+carrito = []
+
+# Función para agregar productos
+def agregar_producto():
+    codigo = codigo_entry.get().strip()
+    if codigo in productos:
+        carrito.append(productos[codigo])
+        actualizar_lista()
+        codigo_entry.delete(0, tk.END)
+    else:
+        messagebox.showerror("Error", "Código no válido.")
+
+# Actualizar lista visual
+def actualizar_lista():
+    lista.delete(*lista.get_children())
+    total = 0
+    for i, (nombre, precio) in enumerate(carrito, 1):
+        lista.insert("", "end", values=(i, nombre, f"{precio:,} Gs"))
+        total += precio
+    total_label.config(text=f"Total: {total:,} Gs")
+
+# Generar factura
+def generar_factura():
+    if not carrito:
+        messagebox.showwarning("Atención", "No hay productos en el carrito.")
+        return
+
+    total = sum(precio for _, precio in carrito)
+    fecha = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    archivo = f"mini_store_invoices/factura_{fecha}.txt"
+
+    with open(archivo, "w", encoding="utf-8") as f:
+        f.write("==== MINI TIENDA PYTHON ====\n")
+        f.write(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n")
+        f.write("Producto\t\tPrecio\n"
