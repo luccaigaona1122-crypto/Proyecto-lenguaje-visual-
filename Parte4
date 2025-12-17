@@ -1,0 +1,1437 @@
+# tienda_completa.py - Sistema completo corregido
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
+import os
+import json
+from datetime import datetime, timedelta
+
+# ============================================================================
+# MÓDULO DE PRODUCTOS
+# ============================================================================
+class GestorProductos:
+    def __init__(self):
+        self.archivo_productos = "data/productos.json"
+        self.cargar_productos()
+        
+    def cargar_productos(self):
+        """Cargar productos desde archivo JSON"""
+        if not os.path.exists("data"):
+            os.makedirs("data")
+            
+        if os.path.exists(self.archivo_productos):
+            with open(self.archivo_productos, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        else:
+            # Productos por defecto
+            productos_default = {
+                "001": {"nombre": "Pan", "precio": 2500, "stock": 50, "categoria": "Panadería"},
+                "002": {"nombre": "Leche", "precio": 5000, "stock": 30, "categoria": "Lácteos"},
+                "003": {"nombre": "Queso", "precio": 12000, "stock": 20, "categoria": "Lácteos"},
+                "004": {"nombre": "Gaseosa", "precio": 7000, "stock": 40, "categoria": "Bebidas"},
+                "005": {"nombre": "Yerba", "precio": 10000, "stock": 25, "categoria": "Almacén"},
+                "006": {"nombre": "Arroz", "precio": 8000, "stock": 35, "categoria": "Almacén"},
+                "007": {"nombre": "Fideos", "precio": 4500, "stock": 45, "categoria": "Almacén"},
+                "008": {"nombre": "Aceite", "precio": 15000, "stock": 15, "categoria": "Almacén"},
+                "009": {"nombre": "Azúcar", "precio": 6000, "stock": 40, "categoria": "Almacén"},
+                "010": {"nombre": "Café", "precio": 18000, "stock": 20, "categoria": "Almacén"}
+            }
+            self.guardar_productos(productos_default)
+            return productos_default
+    
+    def guardar_productos(self, productos):
+        """Guardar productos en archivo JSON"""
+        with open(self.archivo_productos, 'w', encoding='utf-8') as f:
+            json.dump(productos, f, indent=4, ensure_ascii=False)
+    
+    def agregar_producto(self, codigo, nombre, precio, stock, categoria="General"):
+        """Agregar nuevo producto"""
+        productos = self.cargar_productos()
+        
+        if codigo in productos:
+            return False, "El código ya existe"
+        
+        productos[codigo] = {
+            "nombre": nombre,
+            "precio": precio,
+            "stock": stock,
+            "categoria": categoria
+        }
+        
+        self.guardar_productos(productos)
+        return True, "Producto agregado exitosamente"
+    
+    def editar_producto(self, codigo, nombre, precio, stock, categoria="General"):
+        """Editar producto existente"""
+        productos = self.cargar_productos()
+        
+        if codigo not in productos:
+            return False, "El código no existe"
+        
+        productos[codigo] = {
+            "nombre": nombre,
+            "precio": precio,
+            "stock": stock,
+            "categoria": categoria
+        }
+        
+        self.guardar_productos(productos)
+        return True, "Producto actualizado exitosamente"
+    
+    def eliminar_producto(self, codigo):
+        """Eliminar producto"""
+        productos = self.cargar_productos()
+        
+        if codigo not in productos:
+            return False, "El código no existe"
+        
+        del productos[codigo]
+        self.guardar_productos(productos)
+        return True, "Producto eliminado exitosamente"
+    
+    def buscar_producto(self, criterio, valor):
+        """Buscar productos por criterio"""
+        productos = self.cargar_productos()
+        resultados = {}
+        
+        for codigo, producto in productos.items():
+            if criterio == "codigo" and valor.lower() in codigo.lower():
+                resultados[codigo] = producto
+            elif criterio == "nombre" and valor.lower() in producto["nombre"].lower():
+                resultados[codigo] = producto
+            elif criterio == "categoria" and valor.lower() in producto["categoria"].lower():
+                resultados[codigo] = producto
+        
+        return resultados
+    
+    def actualizar_stock(self, nombre_producto, cantidad_vendida):
+        """Actualizar stock después de una venta"""
+        productos = self.cargar_productos()
+        
+        for codigo, producto in productos.items():
+            if producto['nombre'] == nombre_producto:
+                nuevo_stock = producto['stock'] - cantidad_vendida
+                if nuevo_stock < 0:
+                    nuevo_stock = 0
+                producto['stock'] = nuevo_stock
+                self.guardar_productos(productos)
+                return True
+        
+        return False
+
+# ============================================================================
+# MÓDULO DE VENTAS
+# ============================================================================
+class GestorVentas:
+    def __init__(self, gestor_productos):
+        self.gestor_productos = gestor_productos
+        self.carpeta_facturas = "facturas"
+        self.archivo_ventas = "data/ventas.json"
+        
+        # Crear carpetas necesarias
+        if not os.path.exists(self.carpeta_facturas):
+            os.makedirs(self.carpeta_facturas)
+        if not os.path.exists("data"):
+            os.makedirs("data")
+    
+    def generar_factura(self, items):
+        """Generar factura y registrar venta - ACTUALIZA STOCK"""
+        try:
+            # Calcular total
+            total = sum(item['total'] for item in items)
+            
+            # Generar ID único
+            factura_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Crear nombre de archivo
+            archivo_factura = f"{self.carpeta_facturas}/factura_{factura_id}.txt"
+            
+            # Generar contenido de la factura
+            contenido = self._generar_contenido_factura(factura_id, items, total)
+            
+            # Guardar factura en archivo
+            with open(archivo_factura, 'w', encoding='utf-8') as f:
+                f.write(contenido)
+            
+            # ACTUALIZAR STOCK de cada producto vendido
+            for item in items:
+                self.gestor_productos.actualizar_stock(
+                    item['producto'], 
+                    item['cantidad']
+                )
+            
+            # Registrar venta en JSON
+            self._registrar_venta(factura_id, items, total, archivo_factura)
+            
+            return True
+        except Exception as e:
+            print(f"Error generando factura: {e}")
+            return False
+    
+    def _generar_contenido_factura(self, factura_id, items, total):
+        """Generar contenido de la factura"""
+        contenido = "=" * 50 + "\n"
+        contenido += "MINI TIENDA PYTHON PRO\n"
+        contenido += "=" * 50 + "\n"
+        contenido += f"Factura N°: {factura_id}\n"
+        contenido += f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+        contenido += "-" * 50 + "\n"
+        contenido += "CANT  DESCRIPCIÓN          PRECIO UNIT.     TOTAL\n"
+        contenido += "-" * 50 + "\n"
+        
+        for item in items:
+            nombre = item['producto']
+            cantidad = item['cantidad']
+            precio_unit = item['precio_unitario']
+            total_item = item['total']
+            
+            contenido += f"{cantidad:4d}  {nombre:20s} {precio_unit:10,} Gs  {total_item:10,} Gs\n"
+        
+        contenido += "-" * 50 + "\n"
+        contenido += f"{'TOTAL A PAGAR:':36s} {total:10,} Gs\n"
+        contenido += "=" * 50 + "\n"
+        contenido += "¡Gracias por tu compra! Vuelve pronto\n"
+        
+        return contenido
+    
+    def _registrar_venta(self, factura_id, items, total, archivo_factura):
+        """Registrar venta en archivo JSON"""
+        venta = {
+            "id": factura_id,
+            "fecha": datetime.now().isoformat(),
+            "items": items,
+            "total": total,
+            "archivo": archivo_factura
+        }
+        
+        # Cargar ventas existentes
+        ventas = self.obtener_todas_ventas()
+        ventas.append(venta)
+        
+        # Guardar en archivo
+        with open(self.archivo_ventas, 'w', encoding='utf-8') as f:
+            json.dump(ventas, f, indent=4, ensure_ascii=False)
+    
+    def obtener_todas_ventas(self):
+        """Obtener todas las ventas registradas"""
+        if os.path.exists(self.archivo_ventas):
+            with open(self.archivo_ventas, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
+    
+    def obtener_ventas_por_fecha(self, fecha_inicio, fecha_fin):
+        """Obtener ventas en un rango de fechas"""
+        ventas = self.obtener_todas_ventas()
+        resultado = []
+        
+        for venta in ventas:
+            fecha_venta = datetime.fromisoformat(venta['fecha']).date()
+            if fecha_inicio <= fecha_venta <= fecha_fin:
+                resultado.append(venta)
+        
+        return resultado
+    
+    def obtener_estadisticas(self):
+        """Obtener estadísticas de ventas"""
+        ventas = self.obtener_todas_ventas()
+        
+        if not ventas:
+            return {
+                "total_ventas": 0,
+                "monto_total": 0,
+                "promedio_venta": 0,
+                "ventas_hoy": 0,
+                "producto_mas_vendido": "No hay datos",
+                "mejor_dia": "No hay datos",
+                "categoria_popular": "No hay datos"
+            }
+        
+        # Estadísticas básicas
+        total_ventas = len(ventas)
+        monto_total = sum(venta['total'] for venta in ventas)
+        promedio_venta = monto_total / total_ventas if total_ventas > 0 else 0
+        
+        # Ventas de hoy
+        hoy = datetime.now().date()
+        ventas_hoy = sum(1 for venta in ventas 
+                        if datetime.fromisoformat(venta['fecha']).date() == hoy)
+        
+        # Producto más vendido
+        productos_vendidos = {}
+        for venta in ventas:
+            for item in venta['items']:
+                producto = item['producto']
+                cantidad = item['cantidad']
+                productos_vendidos[producto] = productos_vendidos.get(producto, 0) + cantidad
+        
+        producto_mas_vendido = max(productos_vendidos.items(), 
+                                  key=lambda x: x[1], 
+                                  default=("No hay datos", 0))[0]
+        
+        # Mejor día (por monto)
+        ventas_por_dia = {}
+        for venta in ventas:
+            fecha = datetime.fromisoformat(venta['fecha']).strftime("%Y-%m-%d")
+            ventas_por_dia[fecha] = ventas_por_dia.get(fecha, 0) + venta['total']
+        
+        mejor_dia = max(ventas_por_dia.items(), 
+                       key=lambda x: x[1], 
+                       default=("No hay datos", 0))[0]
+        
+        return {
+            "total_ventas": total_ventas,
+            "monto_total": monto_total,
+            "promedio_venta": promedio_venta,
+            "ventas_hoy": ventas_hoy,
+            "producto_mas_vendido": producto_mas_vendido,
+            "mejor_dia": mejor_dia
+        }
+
+# ============================================================================
+# VENTANA PRINCIPAL
+# ============================================================================
+class MiniTiendaApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Mini Tienda Python Pro - 🛒")
+        
+        # Configurar pantalla completa PERO con barra de título
+        self.pantalla_completa = False
+        
+        # En lugar de fullscreen, usar una ventana maximizada
+        self.root.state('zoomed')  # Maximizada pero con barra de título
+        
+        # Obtener dimensiones de pantalla
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Configurar tamaño óptimo (95% de pantalla)
+        window_width = int(screen_width * 0.95)
+        window_height = int(screen_height * 0.90)
+        
+        # Centrar ventana
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        
+        # Botón para pantalla completa (F11)
+        self.root.bind("<F11>", self.toggle_pantalla_completa)
+        self.root.bind("<Escape>", self.salir_pantalla_completa)
+        
+        self.gestor_productos = GestorProductos()
+        self.gestor_ventas = GestorVentas(self.gestor_productos)  # Pasar gestor_productos
+        self.productos = self.gestor_productos.cargar_productos()
+        
+        # Variables de estilo
+        self.colores = {
+            'fondo': '#f0f0f0',
+            'primario': '#2196F3',
+            'secundario': '#4CAF50',
+            'accent': '#FF9800',
+            'peligro': '#F44336',
+            'texto': '#000000'
+        }
+        
+        self.setup_interfaz()
+    
+    def toggle_pantalla_completa(self, event=None):
+        """Alternar entre pantalla completa y ventana normal"""
+        self.pantalla_completa = not self.pantalla_completa
+        if self.pantalla_completa:
+            self.root.attributes('-fullscreen', True)
+        else:
+            self.root.attributes('-fullscreen', False)
+            self.root.state('zoomed')  # Volver a maximizada
+        self.actualizar_barra_estado()
+    
+    def salir_pantalla_completa(self, event=None):
+        """Salir de pantalla completa con Escape"""
+        if self.pantalla_completa:
+            self.pantalla_completa = False
+            self.root.attributes('-fullscreen', False)
+            self.root.state('zoomed')
+            self.actualizar_barra_estado()
+    
+    def actualizar_barra_estado(self):
+        """Actualizar barra de estado con información de pantalla"""
+        if hasattr(self, 'barra_estado'):
+            modo = "FULLSCREEN" if self.pantalla_completa else "MAXIMIZADA"
+            self.barra_estado.config(text=f"🟢 Sistema listo | Modo: {modo} | F11: Pantalla completa | ESC: Salir de pantalla completa")
+    
+    def setup_interfaz(self):
+        """Crear la interfaz principal"""
+        # Frame principal con mejor distribución
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Título con emoji y estilo
+        titulo_frame = ttk.Frame(main_frame)
+        titulo_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(titulo_frame, text="🛒 ", 
+                 font=('Arial', 28)).pack(side=tk.LEFT)
+        ttk.Label(titulo_frame, text="MINI TIENDA PYTHON PRO", 
+                 font=('Arial', 20, 'bold'), 
+                 foreground=self.colores['primario']).pack(side=tk.LEFT)
+        
+        # Frame para productos y carrito (con altura ajustada)
+        contenido_frame = ttk.Frame(main_frame)
+        contenido_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Panel izquierdo - Productos (altura reducida)
+        left_frame = ttk.LabelFrame(contenido_frame, text="📦 PRODUCTOS DISPONIBLES", 
+                                   padding="10", labelanchor='n')
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        
+        # Frame de búsqueda y botón actualizar
+        busqueda_frame = ttk.Frame(left_frame)
+        busqueda_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(busqueda_frame, text="Buscar:").pack(side=tk.LEFT)
+        self.busqueda_entry = ttk.Entry(busqueda_frame, width=20)
+        self.busqueda_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Button(busqueda_frame, text="🔍 Buscar", 
+                  command=self.buscar_productos, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(busqueda_frame, text="🔄 Actualizar", 
+                  command=self.actualizar_lista_productos, width=12).pack(side=tk.LEFT, padx=2)
+        ttk.Button(busqueda_frame, text="📋 Todos", 
+                  command=self.mostrar_todos_productos, width=10).pack(side=tk.LEFT)
+        
+        # Treeview para productos (ALTURA REDUCIDA)
+        columns = ('codigo', 'nombre', 'precio', 'stock', 'categoria')
+        self.tree_productos = ttk.Treeview(left_frame, columns=columns, 
+                                          show='headings', height=12)
+        
+        # Configurar columnas (anchos reducidos)
+        column_config = [
+            ('codigo', 'Código', 80),
+            ('nombre', 'Producto', 150),
+            ('precio', 'Precio (Gs)', 110),
+            ('stock', 'Stock', 70),
+            ('categoria', 'Categoría', 100)
+        ]
+        
+        for col, heading, width in column_config:
+            self.tree_productos.heading(col, text=heading)
+            self.tree_productos.column(col, width=width)
+        
+        # Scrollbars
+        vsb = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.tree_productos.yview)
+        hsb = ttk.Scrollbar(left_frame, orient=tk.HORIZONTAL, command=self.tree_productos.xview)
+        self.tree_productos.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        
+        self.tree_productos.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Panel derecho - Carrito y controles (altura reducida)
+        right_frame = ttk.LabelFrame(contenido_frame, text="🛍️ CARRITO DE COMPRAS", 
+                                    padding="10", labelanchor='n')
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # Treeview para carrito (ALTURA REDUCIDA)
+        self.tree_carrito = ttk.Treeview(right_frame, 
+                                        columns=('cant', 'nombre', 'precio', 'total'), 
+                                        show='headings', height=12)
+        
+        self.tree_carrito.heading('cant', text='Cant')
+        self.tree_carrito.heading('nombre', text='Producto')
+        self.tree_carrito.heading('precio', text='Precio Unit.')
+        self.tree_carrito.heading('total', text='Total')
+        
+        self.tree_carrito.column('cant', width=50)
+        self.tree_carrito.column('nombre', width=140)
+        self.tree_carrito.column('precio', width=100)
+        self.tree_carrito.column('total', width=100)
+        
+        self.tree_carrito.pack(fill=tk.BOTH, expand=True)
+        
+        # Controles de cantidad
+        control_frame = ttk.Frame(right_frame)
+        control_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Label(control_frame, text="Cantidad:").pack(side=tk.LEFT)
+        self.cantidad_var = tk.StringVar(value="1")
+        cantidad_spinbox = ttk.Spinbox(control_frame, from_=1, to=100, 
+                                      textvariable=self.cantidad_var, width=8)
+        cantidad_spinbox.pack(side=tk.LEFT, padx=5)
+        
+        # Botones de acción del carrito
+        btn_frame_carrito = ttk.Frame(right_frame)
+        btn_frame_carrito.pack(fill=tk.X, pady=5)
+        
+        # Botones con texto negro
+        ttk.Button(btn_frame_carrito, text="➕ Agregar", 
+                  command=self.agregar_al_carrito).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame_carrito, text="➖ Quitar", 
+                  command=self.quitar_del_carrito).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame_carrito, text="🗑️ Vaciar", 
+                  command=self.limpiar_carrito).pack(side=tk.LEFT, padx=2)
+        
+        # Total
+        total_frame = ttk.Frame(right_frame)
+        total_frame.pack(fill=tk.X, pady=10)
+        
+        self.total_label = ttk.Label(total_frame, text="TOTAL: 0 Gs", 
+                                    font=('Arial', 14, 'bold'),
+                                    foreground=self.colores['primario'])
+        self.total_label.pack()
+        
+        # Botón finalizar compra CON TEXTO NEGRO
+        ttk.Button(right_frame, text="✅ FINALIZAR COMPRA", 
+                  command=self.finalizar_compra).pack(pady=10)
+        
+        # Frame de botones principales (menú) - AHORA VISIBLE
+        botones_frame = ttk.Frame(main_frame)
+        botones_frame.pack(fill=tk.X, pady=15)
+        
+        # Crear botones con emojis (TODOS CON TEXTO NEGRO)
+        botones = [
+            ("📦 Gestión Productos", self.abrir_gestion_productos),
+            ("📊 Historial Ventas", self.abrir_historial_ventas),
+            ("📈 Estadísticas", self.mostrar_estadisticas),
+            ("📤 Exportar Datos", self.exportar_datos),
+            ("❌ Salir Sistema", self.root.quit)
+        ]
+        
+        for texto, comando in botones:
+            btn = ttk.Button(botones_frame, text=texto, 
+                           command=comando, width=18)
+            btn.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # Barra de estado - DEFINIRLA ANTES DE USARLA
+        self.barra_estado = ttk.Label(main_frame, text="🟢 Sistema listo", 
+                                     relief=tk.SUNKEN, anchor=tk.W)
+        self.barra_estado.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        
+        # Actualizar barra de estado con info de pantalla
+        self.actualizar_barra_estado()
+        
+        # Bind eventos
+        self.tree_productos.bind('<Double-1>', lambda e: self.agregar_al_carrito())
+        
+        # Configurar estilos
+        self.configurar_estilos()
+        
+        # FINALMENTE cargar los productos (después de definir barra_estado)
+        self.actualizar_lista_productos()
+    
+    def configurar_estilos(self):
+        """Configurar estilos para los widgets"""
+        style = ttk.Style()
+        
+        # Configurar colores para botones
+        style.configure('TButton', foreground='black', font=('Arial', 10))
+        
+        # Configurar treeviews
+        style.configure('Treeview', rowheight=25, font=('Arial', 9))
+        style.configure('Treeview.Heading', font=('Arial', 10, 'bold'))
+    
+    def actualizar_lista_productos(self):
+        """Actualizar lista de productos disponibles"""
+        self.tree_productos.delete(*self.tree_productos.get_children())
+        self.productos = self.gestor_productos.cargar_productos()  # ACTUALIZAR DATOS
+        
+        for codigo, producto in self.productos.items():
+            self.tree_productos.insert('', 'end', 
+                                    values=(codigo,  # Ya es string como "005"
+                                            producto['nombre'], 
+                                            f"{producto['precio']:,}",
+                                            producto['stock'],
+                                            producto.get('categoria', 'General')))
+        
+        # Ahora sí podemos usar self.barra_estado porque ya está definido
+        self.barra_estado.config(text="✅ Lista de productos actualizada")
+    
+    def mostrar_todos_productos(self):
+        """Mostrar todos los productos (limpiar búsqueda)"""
+        self.busqueda_entry.delete(0, tk.END)
+        self.actualizar_lista_productos()
+    
+    def buscar_productos(self):
+        """Buscar productos según criterio"""
+        criterio = self.busqueda_entry.get().strip()
+        if not criterio:
+            self.actualizar_lista_productos()
+            return
+        
+        resultados = self.gestor_productos.buscar_producto("nombre", criterio)
+        self.tree_productos.delete(*self.tree_productos.get_children())
+        
+        for codigo, producto in resultados.items():
+            self.tree_productos.insert('', 'end', 
+                                      values=(codigo, 
+                                             producto['nombre'], 
+                                             f"{producto['precio']:,}",
+                                             producto['stock'],
+                                             producto.get('categoria', 'General')))
+        self.barra_estado.config(text=f"🔍 Mostrando {len(resultados)} resultados para '{criterio}'")
+    
+    def agregar_al_carrito(self):
+        """Agregar producto seleccionado al carrito"""
+        seleccion = self.tree_productos.selection()
+        if not seleccion:
+            messagebox.showwarning("Atención", "Seleccione un producto de la lista")
+            return
+        
+        # Obtener producto seleccionado
+        item = self.tree_productos.item(seleccion[0])
+        codigo, nombre, precio_str, stock_str, _ = item['values']
+        
+        # Convertir precio
+        precio = int(precio_str.replace(',', ''))
+        stock = int(stock_str)
+        
+        # Obtener cantidad
+        try:
+            cantidad = int(self.cantidad_var.get())
+            if cantidad <= 0:
+                cantidad = 1
+        except ValueError:
+            cantidad = 1
+        
+        # Verificar stock
+        if cantidad > stock:
+            messagebox.showwarning("Stock insuficiente", 
+                                  f"Solo hay {stock} unidades disponibles")
+            return
+        
+        # Buscar si ya está en el carrito
+        for item_id in self.tree_carrito.get_children():
+            valores = self.tree_carrito.item(item_id)['values']
+            if valores[1] == nombre:
+                # Actualizar cantidad
+                nueva_cantidad = valores[0] + cantidad
+                nuevo_total = nueva_cantidad * precio
+                self.tree_carrito.item(item_id, 
+                                      values=(nueva_cantidad, nombre, 
+                                             f"{precio:,}", f"{nuevo_total:,}"))
+                self.actualizar_total()
+                self.barra_estado.config(text=f"✅ Producto '{nombre}' actualizado en carrito")
+                return
+        
+        # Agregar nuevo item al carrito
+        total = cantidad * precio
+        self.tree_carrito.insert('', 'end', 
+                                values=(cantidad, nombre, 
+                                       f"{precio:,}", f"{total:,}"))
+        
+        self.actualizar_total()
+        self.barra_estado.config(text=f"✅ Producto '{nombre}' agregado al carrito")
+    
+    def quitar_del_carrito(self):
+        """Quitar producto seleccionado del carrito"""
+        seleccion = self.tree_carrito.selection()
+        if not seleccion:
+            messagebox.showwarning("Atención", "Seleccione un producto del carrito")
+            return
+        
+        item = self.tree_carrito.item(seleccion[0])
+        nombre = item['values'][1]
+        
+        self.tree_carrito.delete(seleccion[0])
+        self.actualizar_total()
+        self.barra_estado.config(text=f"🗑️ Producto '{nombre}' eliminado del carrito")
+    
+    def limpiar_carrito(self):
+        """Vaciar completamente el carrito"""
+        if not self.tree_carrito.get_children():
+            return
+        
+        if messagebox.askyesno("Confirmar", "¿Vaciar todo el carrito?"):
+            self.tree_carrito.delete(*self.tree_carrito.get_children())
+            self.actualizar_total()
+            self.barra_estado.config(text="🗑️ Carrito vaciado")
+    
+    def actualizar_total(self):
+        """Calcular y mostrar el total del carrito"""
+        total = 0
+        for item in self.tree_carrito.get_children():
+            valores = self.tree_carrito.item(item)['values']
+            total_item = int(valores[3].replace(',', ''))
+            total += total_item
+        
+        self.total_label.config(text=f"TOTAL: {total:,} Gs")
+    
+    def finalizar_compra(self):
+        """Procesar la compra y generar factura"""
+        if not self.tree_carrito.get_children():
+            messagebox.showwarning("Atención", "El carrito está vacío")
+            return
+        
+        # Crear ventana de confirmación
+        ventana_confirmacion = tk.Toplevel(self.root)
+        ventana_confirmacion.title("Confirmar Compra")
+        ventana_confirmacion.geometry("500x400")
+        ventana_confirmacion.configure(bg='white')
+        ventana_confirmacion.transient(self.root)
+        ventana_confirmacion.grab_set()
+        
+        # Frame principal
+        frame = ttk.Frame(ventana_confirmacion, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Título
+        ttk.Label(frame, text="💰 FINALIZAR COMPRA", 
+                 font=('Arial', 16, 'bold'),
+                 foreground=self.colores['primario']).pack(pady=10)
+        
+        # Mostrar resumen en un Text widget
+        texto_resumen = scrolledtext.ScrolledText(frame, height=12, width=50)
+        texto_resumen.pack(pady=10)
+        
+        total = 0
+        resumen = "🧾 RESUMEN DE COMPRA:\n"
+        resumen += "═" * 45 + "\n\n"
+        
+        for item in self.tree_carrito.get_children():
+            valores = self.tree_carrito.item(item)['values']
+            cantidad, nombre, precio_unit, total_item = valores
+            resumen += f"  {cantidad}× {nombre}\n"
+            resumen += f"     {precio_unit} = {total_item}\n\n"
+            total += int(total_item.replace(',', ''))
+        
+        resumen += "═" * 45 + "\n"
+        resumen += f"  TOTAL: {total:,} Gs\n"
+        resumen += "═" * 45 + "\n"
+        
+        texto_resumen.insert(1.0, resumen)
+        texto_resumen.config(state='disabled')
+        
+        # Botones
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=20)
+        
+        ttk.Button(btn_frame, text="❌ Cancelar", 
+                  command=ventana_confirmacion.destroy).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="✅ Confirmar Pago", 
+                  command=lambda: self.generar_factura_y_limpiar(ventana_confirmacion)).pack(side=tk.LEFT, padx=10)
+    
+    def generar_factura_y_limpiar(self, ventana):
+        """Generar factura y limpiar carrito - AHORA ACTUALIZA STOCK"""
+        # Obtener items del carrito
+        items_venta = []
+        for item in self.tree_carrito.get_children():
+            valores = self.tree_carrito.item(item)['values']
+            nombre = valores[1]
+            precio_unit = int(valores[2].replace(',', ''))
+            cantidad = valores[0]
+            total_item = int(valores[3].replace(',', ''))
+            
+            items_venta.append({
+                'producto': nombre,
+                'precio_unitario': precio_unit,
+                'cantidad': cantidad,
+                'total': total_item
+            })
+        
+        # Generar factura (AHORA ACTUALIZA STOCK AUTOMÁTICAMENTE)
+        exito = self.gestor_ventas.generar_factura(items_venta)
+        
+        if exito:
+            # Limpiar carrito
+            self.tree_carrito.delete(*self.tree_carrito.get_children())
+            self.actualizar_total()
+            
+            # Cerrar ventana de confirmación
+            ventana.destroy()
+            
+            # Actualizar lista de productos para mostrar nuevo stock
+            self.actualizar_lista_productos()
+            
+            # Mostrar mensaje de éxito
+            messagebox.showinfo("🎉 ¡Compra Exitosa!", 
+                              "✅ Factura generada correctamente\n" +
+                              "✅ Stock actualizado\n" +
+                              "📄 La factura se guardó en la carpeta 'facturas/'")
+            self.barra_estado.config(text="✅ Venta registrada y stock actualizado")
+        else:
+            messagebox.showerror("❌ Error", 
+                               "No se pudo generar la factura")
+    
+    def abrir_gestion_productos(self):
+        """Abrir ventana de gestión de productos CORREGIDA"""
+        self.ventana_gestion = tk.Toplevel(self.root)
+        self.ventana_gestion.title("📦 Gestión de Productos")
+        self.ventana_gestion.geometry("800x500")
+        self.ventana_gestion.transient(self.root)
+        
+        frame = ttk.Frame(self.ventana_gestion, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="GESTIÓN DE PRODUCTOS", 
+                 font=('Arial', 16, 'bold')).pack(pady=10)
+        
+        # Frame de búsqueda
+        busqueda_frame = ttk.Frame(frame)
+        busqueda_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Label(busqueda_frame, text="Buscar:").pack(side=tk.LEFT)
+        self.busqueda_gestion_entry = ttk.Entry(busqueda_frame, width=30)
+        self.busqueda_gestion_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Button(busqueda_frame, text="🔍 Buscar", 
+                  command=self.buscar_en_gestion).pack(side=tk.LEFT, padx=2)
+        ttk.Button(busqueda_frame, text="🔄 Actualizar", 
+                  command=self.actualizar_arbol_gestion).pack(side=tk.LEFT, padx=2)
+        ttk.Button(busqueda_frame, text="📋 Todos", 
+                  command=self.mostrar_todos_en_gestion).pack(side=tk.LEFT, padx=2)
+        
+        # Treeview para productos
+        columns = ('codigo', 'nombre', 'precio', 'stock', 'categoria')
+        self.tree_gestion = ttk.Treeview(frame, columns=columns, show='headings', height=15)
+        
+        column_config = [
+            ('codigo', 'Código', 80),
+            ('nombre', 'Producto', 150),
+            ('precio', 'Precio (Gs)', 100),
+            ('stock', 'Stock', 70),
+            ('categoria', 'Categoría', 100)
+        ]
+        
+        for col, heading, width in column_config:
+            self.tree_gestion.heading(col, text=heading)
+            self.tree_gestion.column(col, width=width)
+        
+        # Scrollbars
+        vsb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.tree_gestion.yview)
+        hsb = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=self.tree_gestion.xview)
+        self.tree_gestion.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        
+        self.tree_gestion.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=10)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Frame para botones a la derecha
+        botones_derecha = ttk.Frame(frame)
+        botones_derecha.pack(side=tk.RIGHT, fill=tk.Y, padx=(20, 0))
+        
+        # Botones verticales
+        ttk.Button(botones_derecha, text="➕ Nuevo Producto", 
+                  command=self.mostrar_formulario_producto,
+                  width=18).pack(pady=5)
+        ttk.Button(botones_derecha, text="✏️ Editar Seleccionado", 
+                  command=self.editar_producto_seleccionado_gestion_corregido,
+                  width=18).pack(pady=5)
+        ttk.Button(botones_derecha, text="🗑️ Eliminar Seleccionado", 
+                  command=self.eliminar_producto_seleccionado_gestion,
+                  width=18).pack(pady=5)
+        ttk.Button(botones_derecha, text="🔄 Actualizar Todo", 
+                  command=self.actualizar_todo_gestion,
+                  width=18).pack(pady=20)
+        ttk.Button(botones_derecha, text="❌ Cerrar", 
+                  command=self.ventana_gestion.destroy,
+                  width=18).pack(pady=20)
+        
+        # Cargar productos inicialmente
+        self.actualizar_arbol_gestion()
+    
+    def buscar_en_gestion(self):
+        """Buscar productos en la ventana de gestión"""
+        if not hasattr(self, 'tree_gestion'):
+            return
+            
+        criterio = self.busqueda_gestion_entry.get().strip()
+        if not criterio:
+            self.actualizar_arbol_gestion()
+            return
+        
+        resultados = self.gestor_productos.buscar_producto("nombre", criterio)
+        self.tree_gestion.delete(*self.tree_gestion.get_children())
+        
+        for codigo, producto in resultados.items():
+            self.tree_gestion.insert('', 'end', 
+                                   values=(codigo, 
+                                          producto['nombre'], 
+                                          f"{producto['precio']:,}",
+                                          producto['stock'],
+                                          producto.get('categoria', 'General')))
+    
+    def mostrar_todos_en_gestion(self):
+        """Mostrar todos los productos en gestión"""
+        if hasattr(self, 'busqueda_gestion_entry'):
+            self.busqueda_gestion_entry.delete(0, tk.END)
+        self.actualizar_arbol_gestion()
+    
+    def actualizar_arbol_gestion(self):
+        """Actualizar árbol de productos en gestión"""
+        if not hasattr(self, 'tree_gestion'):
+            return
+            
+        self.tree_gestion.delete(*self.tree_gestion.get_children())
+        productos = self.gestor_productos.cargar_productos()
+        
+        for codigo, producto in productos.items():
+            self.tree_gestion.insert('', 'end', 
+                                values=(codigo,  # Ya es string como "005"
+                                        producto['nombre'], 
+                                        f"{producto['precio']:,}",
+                                        producto['stock'],
+                                        producto.get('categoria', 'General')))
+    
+    def actualizar_todo_gestion(self):
+        """Actualizar todo en gestión de productos"""
+        self.actualizar_arbol_gestion()
+        self.actualizar_lista_productos()  # Actualizar también la ventana principal
+        self.barra_estado.config(text="✅ Todos los productos actualizados")
+    
+    def mostrar_formulario_producto(self):
+        """Mostrar formulario para agregar nuevo producto"""
+        formulario = tk.Toplevel(self.root)
+        formulario.title("➕ Nuevo Producto")
+        formulario.geometry("400x400")
+        formulario.transient(self.root)
+        
+        frame = ttk.Frame(formulario, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="📝 NUEVO PRODUCTO", 
+                 font=('Arial', 14, 'bold')).pack(pady=10)
+        
+        # Campos
+        campos_frame = ttk.Frame(frame)
+        campos_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        # Código
+        ttk.Label(campos_frame, text="Código:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        codigo_entry = ttk.Entry(campos_frame, width=25)
+        codigo_entry.grid(row=0, column=1, pady=5, padx=5)
+        
+        # Nombre
+        ttk.Label(campos_frame, text="Nombre:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        nombre_entry = ttk.Entry(campos_frame, width=25)
+        nombre_entry.grid(row=1, column=1, pady=5, padx=5)
+        
+        # Precio
+        ttk.Label(campos_frame, text="Precio (Gs):").grid(row=2, column=0, sticky=tk.W, pady=5)
+        precio_entry = ttk.Entry(campos_frame, width=25)
+        precio_entry.grid(row=2, column=1, pady=5, padx=5)
+        
+        # Stock
+        ttk.Label(campos_frame, text="Stock:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        stock_entry = ttk.Entry(campos_frame, width=25)
+        stock_entry.grid(row=3, column=1, pady=5, padx=5)
+        
+        # Categoría
+        ttk.Label(campos_frame, text="Categoría:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        categoria_entry = ttk.Combobox(campos_frame, values=["Almacén", "Lácteos", "Bebidas", 
+                                                           "Panadería", "Limpieza", "General"],
+                                      width=22)
+        categoria_entry.grid(row=4, column=1, pady=5, padx=5)
+        categoria_entry.set("General")
+        
+        # Botones
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        
+        def guardar():
+            datos = {
+                'codigo': codigo_entry.get().strip(),
+                'nombre': nombre_entry.get().strip(),
+                'precio': precio_entry.get().strip(),
+                'stock': stock_entry.get().strip(),
+                'categoria': categoria_entry.get().strip()
+            }
+            
+            # Validar
+            for campo, valor in datos.items():
+                if not valor and campo != 'categoria':
+                    messagebox.showwarning("Validación", f"El campo {campo} es obligatorio")
+                    return
+            
+            try:
+                precio = int(datos['precio'])
+                stock = int(datos['stock'])
+            except ValueError:
+                messagebox.showwarning("Validación", "Precio y Stock deben ser números")
+                return
+            
+            # Agregar producto
+            exito, mensaje = self.gestor_productos.agregar_producto(
+                datos['codigo'], datos['nombre'], precio, stock, datos['categoria']
+            )
+            
+            if exito:
+                messagebox.showinfo("✅ Éxito", mensaje)
+                formulario.destroy()
+                
+                # Actualizar ambas ventanas
+                self.actualizar_lista_productos()
+                if hasattr(self, 'tree_gestion'):
+                    self.actualizar_arbol_gestion()
+                
+                self.barra_estado.config(text=mensaje)
+            else:
+                messagebox.showerror("❌ Error", mensaje)
+        
+        ttk.Button(btn_frame, text="💾 Guardar", 
+                  command=guardar).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="❌ Cancelar", 
+                  command=formulario.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def editar_producto_seleccionado_gestion_corregido(self):
+        """Editar producto seleccionado en gestión - CORREGIDO"""
+        if not hasattr(self, 'tree_gestion') or not self.tree_gestion.selection():
+            messagebox.showwarning("Atención", "Seleccione un producto para editar")
+            return
+
+        item = self.tree_gestion.item(self.tree_gestion.selection()[0])
+        valores = item['values']
+        
+        if not valores or len(valores) < 1:
+            messagebox.showerror("Error", "No se pudo obtener los datos del producto seleccionado")
+            return
+        
+        # El código en el Treeview está como número entero (ej: 5), pero en la BD es string ("005")
+        codigo_crudo = valores[0]
+        
+        # IMPORTANTE: Convertir el número a string de 3 dígitos
+        # Si el código es un número, formatearlo a 3 dígitos con ceros a la izquierda
+        try:
+            # Si es número (int, float), convertirlo a string con 3 dígitos
+            if isinstance(codigo_crudo, (int, float)):
+                codigo = f"{int(codigo_crudo):03d}"  # Esto convierte 5 a "005"
+            else:
+                # Si ya es string, usar directamente
+                codigo = str(codigo_crudo).strip()
+        except:
+            # Si falla, usar el valor crudo como string
+            codigo = str(codigo_crudo).strip()
+
+        # Obtener datos actuales del producto
+        productos = self.gestor_productos.cargar_productos()
+        
+        # Verificar si el código existe en la base de datos
+        if codigo not in productos:
+            # Intentar otras formas de búsqueda
+            # 1. Buscar sin ceros a la izquierda
+            codigo_sin_ceros = str(int(codigo_crudo)) if isinstance(codigo_crudo, (int, float)) else codigo.lstrip('0')
+            
+            # 2. Buscar por nombre del producto
+            nombre_producto = valores[1] if len(valores) > 1 else ""
+            
+            # Buscar en la base de datos
+            encontrado = False
+            for codigo_db, producto_db in productos.items():
+                # Verificar si coincide por código (con o sin ceros)
+                if codigo == codigo_db or codigo_sin_ceros == codigo_db.lstrip('0'):
+                    codigo = codigo_db  # Usar el código real de la BD
+                    encontrado = True
+                    break
+                # Verificar si coincide por nombre
+                elif nombre_producto and producto_db['nombre'] == nombre_producto:
+                    codigo = codigo_db  # Usar el código real de la BD
+                    encontrado = True
+                    break
+            
+            if not encontrado:
+                messagebox.showerror("Error", 
+                    f"Producto no encontrado.\n"
+                    f"Código del treeview: {codigo_crudo}\n"
+                    f"Código formateado: {codigo}\n"
+                    f"Nombre: {nombre_producto}\n\n"
+                    f"Productos disponibles:\n" + 
+                    "\n".join([f"  {k}: {v['nombre']}" for k, v in productos.items()]))
+                return
+
+        # Ahora tenemos el código correcto
+        producto = productos[codigo]
+
+        # Crear formulario de edición
+        formulario = tk.Toplevel(self.root)
+        formulario.title(f"✏️ Editar Producto: {producto['nombre']}")
+        formulario.geometry("400x400")
+        formulario.transient(self.root)
+
+        frame = ttk.Frame(formulario, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text=f"EDITAR PRODUCTO: {codigo}", 
+                font=('Arial', 14, 'bold')).pack(pady=10)
+
+        # Campos
+        campos_frame = ttk.Frame(frame)
+        campos_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        # Código (solo lectura)
+        ttk.Label(campos_frame, text="Código:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        codigo_label = ttk.Label(campos_frame, text=codigo, font=('Arial', 10, 'bold'))
+        codigo_label.grid(row=0, column=1, pady=5, padx=5, sticky=tk.W)
+
+        # Nombre
+        ttk.Label(campos_frame, text="Nombre:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        nombre_entry = ttk.Entry(campos_frame, width=25)
+        nombre_entry.insert(0, producto['nombre'])
+        nombre_entry.grid(row=1, column=1, pady=5, padx=5)
+
+        # Precio
+        ttk.Label(campos_frame, text="Precio (Gs):").grid(row=2, column=0, sticky=tk.W, pady=5)
+        precio_entry = ttk.Entry(campos_frame, width=25)
+        precio_entry.insert(0, str(producto['precio']))
+        precio_entry.grid(row=2, column=1, pady=5, padx=5)
+
+        # Stock
+        ttk.Label(campos_frame, text="Stock:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        stock_entry = ttk.Entry(campos_frame, width=25)
+        stock_entry.insert(0, str(producto['stock']))
+        stock_entry.grid(row=3, column=1, pady=5, padx=5)
+
+        # Categoría
+        ttk.Label(campos_frame, text="Categoría:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        categoria_entry = ttk.Combobox(campos_frame, values=["Almacén", "Lácteos", "Bebidas", 
+                                                    "Panadería", "Limpieza", "General"],
+                                width=22)
+        categoria_entry.grid(row=4, column=1, pady=5, padx=5)
+        categoria_entry.set(producto.get('categoria', 'General'))
+
+        # Botones
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+
+        def guardar_edicion():
+            datos = {
+                'codigo': codigo,  # Usar el código real de la BD
+                'nombre': nombre_entry.get().strip(),
+                'precio': precio_entry.get().strip(),
+                'stock': stock_entry.get().strip(),
+                'categoria': categoria_entry.get().strip()
+            }
+        
+            # Validar
+            for campo, valor in datos.items():
+                if not valor and campo != 'categoria':
+                    messagebox.showwarning("Validación", f"El campo {campo} es obligatorio")
+                    return
+        
+            try:
+                precio = int(datos['precio'])
+                stock = int(datos['stock'])
+            except ValueError:
+                messagebox.showwarning("Validación", "Precio y Stock deben ser números")
+                return
+        
+            # Editar producto
+            exito, mensaje = self.gestor_productos.editar_producto(
+                datos['codigo'], datos['nombre'], precio, stock, datos['categoria']
+            )
+        
+            if exito:
+                messagebox.showinfo("✅ Éxito", mensaje)
+                formulario.destroy()
+            
+                # Actualizar ambas ventanas
+                self.actualizar_lista_productos()
+                if hasattr(self, 'tree_gestion'):
+                    self.actualizar_arbol_gestion()
+            
+                self.barra_estado.config(text=mensaje)
+            else:
+                messagebox.showerror("❌ Error", mensaje)
+
+        ttk.Button(btn_frame, text="💾 Guardar Cambios", 
+                command=guardar_edicion).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="❌ Cancelar", 
+                command=formulario.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def eliminar_producto_seleccionado_gestion(self):
+        """Eliminar producto seleccionado en gestión"""
+        if not hasattr(self, 'tree_gestion') or not self.tree_gestion.selection():
+            messagebox.showwarning("Atención", "Seleccione un producto para eliminar")
+            return
+        
+        item = self.tree_gestion.item(self.tree_gestion.selection()[0])
+        codigo, nombre = item['values'][0], item['values'][1]
+        
+        if messagebox.askyesno("Confirmar", f"¿Eliminar el producto '{nombre}'?"):
+            exito, mensaje = self.gestor_productos.eliminar_producto(codigo)
+            if exito:
+                self.actualizar_arbol_gestion()
+                self.actualizar_lista_productos()  # Actualizar ventana principal también
+                messagebox.showinfo("✅ Éxito", mensaje)
+                self.barra_estado.config(text=mensaje)
+            else:
+                messagebox.showerror("❌ Error", mensaje)
+    
+    def abrir_historial_ventas(self):
+        """Abrir ventana de historial de ventas SIN botón Ver Detalle"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("📊 Historial de Ventas")
+        ventana.geometry("900x500")
+        ventana.transient(self.root)
+        
+        frame = ttk.Frame(ventana, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="📜 HISTORIAL DE VENTAS", 
+                 font=('Arial', 16, 'bold')).pack(pady=10)
+        
+        # Treeview para ventas
+        tree = ttk.Treeview(frame, columns=('id', 'fecha', 'items', 'total', 'archivo'), 
+                           show='headings', height=15)
+        
+        column_config = [
+            ('id', 'ID Factura', 150),
+            ('fecha', 'Fecha y Hora', 150),
+            ('items', 'Items', 80),
+            ('total', 'Total (Gs)', 120),
+            ('archivo', 'Archivo', 250)
+        ]
+        
+        for col, heading, width in column_config:
+            tree.heading(col, text=heading)
+            tree.column(col, width=width)
+        
+        # Scrollbars
+        vsb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
+        hsb = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=tree.xview)
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=10)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Cargar ventas
+        self.cargar_ventas_en_tree(tree)
+        
+        # Frame para botones a la derecha (SIN Ver Detalle)
+        botones_derecha = ttk.Frame(frame)
+        botones_derecha.pack(side=tk.RIGHT, fill=tk.Y, padx=(20, 0))
+        
+        # Botones verticales (SIN Ver Detalle)
+        ttk.Button(botones_derecha, text="📄 Ver Factura", 
+                  command=lambda: self.ver_factura_completa(tree, ventana),
+                  width=18).pack(pady=5)
+        ttk.Button(botones_derecha, text="🗑️ Eliminar", 
+                  command=lambda: self.eliminar_venta_seleccionada(tree),
+                  width=18).pack(pady=5)
+        ttk.Button(botones_derecha, text="🔄 Actualizar", 
+                  command=lambda: self.cargar_ventas_en_tree(tree),
+                  width=18).pack(pady=20)
+        ttk.Button(botones_derecha, text="❌ Cerrar", 
+                  command=ventana.destroy,
+                  width=18).pack(pady=20)
+    
+    def cargar_ventas_en_tree(self, tree):
+        """Cargar ventas en el treeview"""
+        tree.delete(*tree.get_children())
+        ventas = self.gestor_ventas.obtener_todas_ventas()
+        for venta in ventas:
+            fecha = datetime.fromisoformat(venta['fecha']).strftime("%d/%m/%Y %H:%M")
+            tree.insert('', 'end', 
+                       values=(venta['id'], fecha, 
+                              len(venta['items']), 
+                              f"{venta['total']:,}",
+                              venta['archivo']))
+    
+    def ver_factura_completa(self, tree, parent_ventana):
+        """Ver factura completa con botón cerrar"""
+        seleccion = tree.selection()
+        if not seleccion:
+            messagebox.showwarning("Atención", "Seleccione una venta")
+            return
+        
+        item = tree.item(seleccion[0])
+        archivo = item['values'][4]
+        
+        if os.path.exists(archivo):
+            try:
+                with open(archivo, 'r', encoding='utf-8') as f:
+                    contenido = f.read()
+                
+                # Mostrar contenido en nueva ventana
+                ventana_factura = tk.Toplevel(parent_ventana)
+                ventana_factura.title(f"🧾 Factura {item['values'][0]}")
+                ventana_factura.geometry("600x500")
+                ventana_factura.transient(parent_ventana)
+                
+                frame = ttk.Frame(ventana_factura, padding="10")
+                frame.pack(fill=tk.BOTH, expand=True)
+                
+                # Área de texto con scroll
+                texto = scrolledtext.ScrolledText(frame, wrap=tk.WORD, 
+                                                 font=('Courier', 10))
+                texto.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+                
+                texto.insert(1.0, contenido)
+                texto.config(state='disabled')
+                
+                # Botón cerrar
+                ttk.Button(frame, text="Cerrar", 
+                          command=ventana_factura.destroy).pack()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo abrir el archivo: {e}")
+        else:
+            messagebox.showerror("Error", f"El archivo de factura no existe:\n{archivo}")
+    
+    def eliminar_venta_seleccionada(self, tree):
+        """Eliminar venta seleccionada"""
+        seleccion = tree.selection()
+        if not seleccion:
+            messagebox.showwarning("Atención", "Seleccione una venta")
+            return
+        
+        item = tree.item(seleccion[0])
+        venta_id = item['values'][0]
+        archivo = item['values'][4]
+        
+        if messagebox.askyesno("Confirmar", 
+                              f"¿Eliminar la venta {venta_id}?\n\nEsta acción no se puede deshacer."):
+            # Eliminar archivo de factura
+            if os.path.exists(archivo):
+                try:
+                    os.remove(archivo)
+                except Exception as e:
+                    print(f"Error eliminando archivo: {e}")
+            
+            # Eliminar de la lista de ventas
+            ventas = self.gestor_ventas.obtener_todas_ventas()
+            nuevas_ventas = [v for v in ventas if v['id'] != venta_id]
+            
+            # Guardar
+            try:
+                with open(self.gestor_ventas.archivo_ventas, 'w', encoding='utf-8') as f:
+                    json.dump(nuevas_ventas, f, indent=4, ensure_ascii=False)
+                
+                # Actualizar treeview
+                tree.delete(seleccion[0])
+                messagebox.showinfo("✅ Éxito", "Venta eliminada")
+                self.barra_estado.config(text=f"🗑️ Venta {venta_id} eliminada")
+            except Exception as e:
+                messagebox.showerror("❌ Error", f"No se pudo eliminar: {e}")
+    
+    def mostrar_estadisticas(self):
+        """Mostrar estadísticas de ventas"""
+        ventana = tk.Toplevel(self.root)
+        ventana.title("📈 Estadísticas de Ventas")
+        ventana.geometry("600x500")
+        ventana.transient(self.root)
+        
+        frame = ttk.Frame(ventana, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="📊 ESTADÍSTICAS", 
+                 font=('Arial', 16, 'bold')).pack(pady=10)
+        
+        # Obtener estadísticas
+        stats = self.gestor_ventas.obtener_estadisticas()
+        
+        # Crear frame para estadísticas
+        stats_frame = ttk.Frame(frame)
+        stats_frame.pack(fill=tk.BOTH, expand=True, pady=20)
+        
+        # Definir estadísticas a mostrar
+        estadisticas = [
+            ("💰 Total Ventas", f"{stats['total_ventas']} ventas"),
+            ("💵 Monto Total", f"{stats['monto_total']:,} Gs"),
+            ("📦 Promedio por Venta", f"{stats['promedio_venta']:,.0f} Gs"),
+            ("📅 Ventas Hoy", f"{stats['ventas_hoy']} ventas"),
+            ("🏆 Producto Más Vendido", stats['producto_mas_vendido']),
+            ("📈 Mejor Día", stats['mejor_dia'])
+        ]
+        
+        # Mostrar cada estadística en un frame con estilo
+        for i, (titulo, valor) in enumerate(estadisticas):
+            stat_frame = ttk.Frame(stats_frame, relief=tk.RIDGE, padding="10")
+            stat_frame.pack(fill=tk.X, pady=5)
+            
+            ttk.Label(stat_frame, text=titulo, 
+                     font=('Arial', 10)).pack(anchor=tk.W)
+            ttk.Label(stat_frame, text=valor, 
+                     font=('Arial', 12, 'bold'),
+                     foreground=self.colores['primario']).pack(anchor=tk.W)
+        
+        # Botón para cerrar
+        ttk.Button(frame, text="Cerrar", 
+                  command=ventana.destroy).pack(pady=20)
+    
+    def exportar_datos(self):
+        """Exportar datos a archivo de texto en la carpeta actual - CORREGIDO"""
+        try:
+            # Crear carpeta backups si no existe
+            if not os.path.exists("backups"):
+                os.makedirs("backups")
+            
+            fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archivo = f"backups/datos_exportados_{fecha}.txt"
+            
+            with open(archivo, 'w', encoding='utf-8') as f:
+                f.write("="*60 + "\n")
+                f.write("EXPORTACIÓN DE DATOS - MINI TIENDA PYTHON PRO\n")
+                f.write("="*60 + "\n\n")
+                
+                # Información del sistema
+                f.write(f"Fecha de exportación: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+                
+                # Productos
+                productos = self.gestor_productos.cargar_productos()
+                f.write(f"Total productos: {len(productos)}\n")
+                
+                # Ventas
+                ventas = self.gestor_ventas.obtener_todas_ventas()
+                f.write(f"Total ventas: {len(ventas)}\n\n")
+                
+                # Productos
+                f.write("PRODUCTOS REGISTRADOS:\n")
+                f.write("-"*60 + "\n")
+                for codigo, producto in productos.items():
+                    f.write(f"Código: {codigo}\n")
+                    f.write(f"  Producto: {producto['nombre']}\n")
+                    f.write(f"  Precio: {producto['precio']:,} Gs\n")
+                    f.write(f"  Stock: {producto['stock']} unidades\n")
+                    f.write(f"  Categoría: {producto.get('categoria', 'General')}\n")
+                    f.write("-"*40 + "\n")
+                
+                f.write("\n" + "="*60 + "\n\n")
+                
+                # Ventas resumidas
+                f.write("VENTAS REGISTRADAS:\n")
+                f.write("-"*60 + "\n")
+                for venta in ventas:
+                    fecha_venta = datetime.fromisoformat(venta['fecha']).strftime('%d/%m/%Y %H:%M')
+                    f.write(f"Factura: {venta['id']}\n")
+                    f.write(f"  Fecha: {fecha_venta}\n")
+                    f.write(f"  Total: {venta['total']:,} Gs\n")
+                    f.write(f"  Items: {len(venta['items'])}\n")
+                    f.write(f"  Archivo: {venta['archivo']}\n")
+                    f.write("-"*40 + "\n")
+            
+            # Mostrar mensaje con la ruta exacta
+            ruta_actual = os.getcwd()
+            ruta_completa = os.path.join(ruta_actual, archivo)
+            
+            mensaje = f"✅ Datos exportados exitosamente\n\n"
+            mensaje += f"📄 Archivo: datos_exportados_{fecha}.txt\n"
+            mensaje += f"📂 Ubicación: {ruta_actual}\\backups\\\n\n"
+            mensaje += "📋 Contenido exportado:\n"
+            mensaje += f"  • {len(productos)} productos\n"
+            mensaje += f"  • {len(ventas)} ventas"
+            
+            messagebox.showinfo("✅ Exportación Exitosa", mensaje)
+            self.barra_estado.config(text=f"📤 Datos exportados a backups/datos_exportados_{fecha}.txt")
+            
+            # Intentar abrir la carpeta (Windows)
+            if os.name == 'nt':  # Windows
+                try:
+                    os.startfile("backups")
+                except:
+                    pass
+            
+        except Exception as e:
+            messagebox.showerror("❌ Error", f"No se pudo exportar: {str(e)}")
+
+# ============================================================================
+# INICIALIZACIÓN Y EJECUCIÓN
+# ============================================================================
+if __name__ == "__main__":
+    # Crear carpeta de backups si no existe
+    if not os.path.exists("backups"):
+        os.makedirs("backups")
+    
+    # Crear ventana principal
+    root = tk.Tk()
+    
+    # Iniciar aplicación
+    app = MiniTiendaApp(root)
+    
+    # Iniciar bucle principal
+    root.mainloop()
